@@ -14,6 +14,7 @@ import (
 type Container struct {
 	Config          env.Config
 	ConsumerService event.IConsumerService
+	ProducerService event.IProducerService
 	AwsConfig       aws.Config
 }
 
@@ -39,6 +40,7 @@ func (container *Container) Start(ctx context.Context) error {
 	}
 
 	container.ConsumerService = event.NewConsumerService(container.Config.InputQueueUrl, container.AwsConfig)
+	container.ProducerService = event.NewProducerService(container.Config.ProcessResultTopicArn, container.AwsConfig)
 
 	return nil
 }

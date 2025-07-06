@@ -17,6 +17,7 @@ func NewConsumerController(container *container.Container) *ConsumerController {
 	return &ConsumerController{
 		usc: usecase.NewUscProcessVideo(
 			gateway.NewProcessorGateway(container.AwsConfig),
+			gateway.NewProducerGateway(container.ProducerService),
 		),
 	}
 }

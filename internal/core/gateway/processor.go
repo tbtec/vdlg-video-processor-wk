@@ -22,6 +22,7 @@ type ProcessorGateway struct {
 type IProcessorGateway interface {
 	ProcessaVideo(ctx context.Context, videoURL string) (*string, error)
 	uploadToS3(ctx context.Context, bucketName, key, filePath string) (*string, error)
+	notifyProcessingResultSNS(ctx context.Context, topicARN, key, messageBody string) (*string, error)
 }
 
 func NewProcessorGateway(config aws.Config) *ProcessorGateway {
@@ -38,7 +39,7 @@ type ProcessingResult struct {
 	Images     []string
 }
 
-func (gtw *ProcessorGateway) ProcessVideo(ctx context.Context, videoURL dto.Message) error {
+func (gtw *ProcessorGateway) ProcessVideo(ctx context.Context, videoURL dto.Message) ProcessingResult {
 
 	timestamp := time.Now().Format("20060102_150405")
 
@@ -78,7 +79,7 @@ func (gtw *ProcessorGateway) ProcessVideo(ctx context.Context, videoURL dto.Mess
 		}
 	}
 
-	return nil
+	return result
 
 }
 
