@@ -1,5 +1,5 @@
 BINARY_NAME=vdlg-video-processor
-AWS_EKS_CLUSTER_NAME=vdlg-video-processor-eks-cluster
+AWS_EKS_CLUSTER_NAME=vdlg-eks-cluster
 
 run:
 	go run cmd/main.go
@@ -46,8 +46,6 @@ kube-eks-connect:
 kube-config:
 #	eval $(minikube docker-env)
 	kubectl apply -f k8s/namespace.yaml
-	kubectl apply -f k8s/postgresql/postgresql-base.yaml 
-	kubectl apply -f k8s/postgresql/postgresql.yaml 
 
 kube-deploy:
 	kubectl apply -f k8s/configmap.yaml

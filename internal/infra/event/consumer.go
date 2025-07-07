@@ -77,6 +77,16 @@ func (consumer *ConsumerService) ConsumeMessage(ctx context.Context) (*dto.Messa
 	var event S3Event
 	if err := json.Unmarshal([]byte(snsMsg.Message), &event); err != nil {
 		fmt.Println("Erro ao fazer unmarshal do campo Message:", err)
+
+		out, delErr := consumer.Client.DeleteMessage(ctx, &sqs.DeleteMessageInput{
+			QueueUrl:      &consumer.QueueUrl,
+			ReceiptHandle: resp.Messages[0].ReceiptHandle,
+		})
+		if delErr != nil {
+			slog.ErrorContext(ctx, "Error deleting message", "error", delErr)
+		}
+		slog.InfoContext(ctx, "Message deleted", "recepit", *&out.ResultMetadata)
+
 		return nil, err
 	}
 
@@ -148,3 +158,23 @@ func (consumer *ConsumerService) generatePresignedURLV2(ctx context.Context, buc
 
 	return presignedURL.URL, nil
 }
+
+/*func (consumer *ConsumerService) GetObjectFromS3(ctx context.Context, bucket, key string) ([]byte, error) {
+	getObjInput := &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}
+
+	resp, err := consumer.S3Client.GetObject(ctx, getObjInput)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get object from S3: %w", err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read object body: %w", err)
+	}
+
+	return data, nil
+}*/

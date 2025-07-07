@@ -43,7 +43,12 @@ func (gtw *ProcessorGateway) ProcessVideo(ctx context.Context, videoURL dto.Mess
 
 	timestamp := time.Now().Format("20060102_150405")
 
-	result := processVideoFromURL(videoURL.Url, timestamp)
+	arq, err2 := gtw.getObjectFromS3(ctx, videoURL.BucketName, videoURL.Key)
+	if err2 != nil {
+		fmt.Println("Erro ao buscar arquivo no s3:", err2)
+	}
+
+	result := processVideoFromURL(videoURL, timestamp, arq)
 	fmt.Printf("✅ Resultado: %+v\n", result)
 
 	bucket := videoURL.BucketName
@@ -83,8 +88,9 @@ func (gtw *ProcessorGateway) ProcessVideo(ctx context.Context, videoURL dto.Mess
 
 }
 
-func processVideoFromURL(videoURL, timestamp string) ProcessingResult {
+func processVideoFromURL(message dto.Message, timestamp string, arq []byte) ProcessingResult {
 
+	videoURL := message.Url
 	fmt.Printf("⏳ Processando vídeo: %s\n", videoURL)
 
 	tempDir := filepath.Join("temp", timestamp)
@@ -93,8 +99,18 @@ func processVideoFromURL(videoURL, timestamp string) ProcessingResult {
 
 	framePattern := filepath.Join(tempDir, "frame_%04d.png")
 
+	// Salva o []byte em um arquivo temporário
+	videoPath := filepath.Join(tempDir, "input.mp4")
+	err := os.WriteFile(videoPath, arq, 0644)
+	if err != nil {
+		return ProcessingResult{
+			Success: false,
+			Message: fmt.Sprintf("Erro ao salvar arquivo temporário: %s", err.Error()),
+		}
+	}
+
 	cmd := exec.Command("ffmpeg",
-		"-i", videoURL,
+		"-i", videoPath,
 		"-vf", "fps=1",
 		"-y",
 		framePattern,
@@ -118,6 +134,10 @@ func processVideoFromURL(videoURL, timestamp string) ProcessingResult {
 
 	zipFilename := fmt.Sprintf("frames_%s.zip", timestamp)
 	zipPath := filepath.Join("outputs", zipFilename)
+
+	zipPath2 := filepath.Join("outputs")
+
+	os.MkdirAll(zipPath2, 0755)
 
 	err = createZipFile(frames, zipPath)
 	if err != nil {
@@ -191,4 +211,22 @@ func (gtw *ProcessorGateway) uploadToS3(ctx context.Context, bucketName, key, fi
 	}
 
 	return nil
+}
+
+func (gtw *ProcessorGateway) getObjectFromS3(ctx context.Context, bucket, key string) ([]byte, error) {
+	resp, err := gtw.S3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar objeto do S3: %w", err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao ler corpo do objeto: %w", err)
+	}
+
+	return data, nil
 }
