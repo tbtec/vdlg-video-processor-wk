@@ -64,12 +64,28 @@ func (consumer *ConsumerService) ConsumeMessage(ctx context.Context) (*dto.Messa
 
 	fmt.Println("Raw message body:", *resp.Messages[0].Body)
 
-	var event S3Event
-	if err := json.Unmarshal([]byte(*resp.Messages[0].Body), &event); err != nil {
-		fmt.Println("Erro ao parsear evento:", err)
-		//continue
+	type SNSMessageWrapper struct {
+		Message string `json:"Message"`
 	}
-	record := event.Records[0] // Assuming we only process the first record
+
+	var snsMsg SNSMessageWrapper
+	if err := json.Unmarshal([]byte(*resp.Messages[0].Body), &snsMsg); err != nil {
+		fmt.Println("Erro ao fazer unmarshal do body SNS:", err)
+		return nil, err
+	}
+
+	var event S3Event
+	if err := json.Unmarshal([]byte(snsMsg.Message), &event); err != nil {
+		fmt.Println("Erro ao fazer unmarshal do campo Message:", err)
+		return nil, err
+	}
+
+	if len(event.Records) == 0 {
+		fmt.Println("Nenhum registro encontrado no evento")
+		return nil, fmt.Errorf("evento sem registros")
+	}
+
+	record := event.Records[0]
 
 	bucket := record.S3.Bucket.Name
 	key := record.S3.Object.Key
