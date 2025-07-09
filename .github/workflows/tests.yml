@@ -1,0 +1,66 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+jobs:
+  test:
+    name: Build Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ vars.GO_VERSION }}
+
+      - name: Run Unit Tests and Generate Coverage Report
+        run: go test -race -count=1 -coverprofile=./cov.out ./internal/...
+
+      - name: Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: cov.out
+          retention-days: 1
+
+      - name: Run GoSec Security Scanner and Generate Report
+        uses: securego/gosec@master
+        with:
+          args: '-no-fail -fmt sonarqube -out gosec-report.json ./...'
+
+      - name: Upload GoSec Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: sec
+          path: gosec-report.json
+          retention-days: 1
+
+  analysis:
+    needs: 
+      - test
+    name: SonarQube 
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download Coverage Report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage
+          path: .
+
+      - name: Download GoSec Report
+        uses: actions/download-artifact@v4
+        with:
+          name: sec
+          path: .
+
+      - name: SonarCloud Analysis
+        uses: SonarSource/sonarcloud-github-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vdlg-video-processor
+  namespace: vdlg
+spec:
+  selector:
+    matchLabels:
+      app: vdlg-video-processor     
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+  template:
+    metadata:
+      annotations:
+        kubernetes.io/change-cause: "UPDATE"
+      labels:
+        app: vdlg-video-processor
+        environment: "dev"
+        version: "1.0.0"
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: vdlg-video-processor
+          image: tbtec/vdlg-video-processor:1.0.0
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 4
+            successThreshold: 1
+          envFrom:
+            - configMapRef:
+                name: vdlg-video-processor-config
+            - secretRef:
+                name: vdlg-video-processor-secret
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+              ephemeral-storage: "2Gi"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+              ephemeral-storage: "2Gi"
+      terminationGracePeriodSeconds: 30
+      nodeSelector: {}
+      tolerations: []
