@@ -71,27 +71,24 @@ func (consumer *ConsumerService) ConsumeMessage(ctx context.Context) (*dto.Messa
 	var snsMsg SNSMessageWrapper
 	if err := json.Unmarshal([]byte(*resp.Messages[0].Body), &snsMsg); err != nil {
 		fmt.Println("Erro ao fazer unmarshal do body SNS:", err)
+		// Delete the message from the queue
+		consumer.deleteSQSMessage(ctx, resp)
 		return nil, err
 	}
 
 	var event S3Event
 	if err := json.Unmarshal([]byte(snsMsg.Message), &event); err != nil {
 		fmt.Println("Erro ao fazer unmarshal do campo Message:", err)
-
-		out, delErr := consumer.Client.DeleteMessage(ctx, &sqs.DeleteMessageInput{
-			QueueUrl:      &consumer.QueueUrl,
-			ReceiptHandle: resp.Messages[0].ReceiptHandle,
-		})
-		if delErr != nil {
-			slog.ErrorContext(ctx, "Error deleting message", "error", delErr)
-		}
-		slog.InfoContext(ctx, "Message deleted", "recepit", *&out.ResultMetadata)
-
+		// Delete the message from the queue
+		consumer.deleteSQSMessage(ctx, resp)
 		return nil, err
 	}
 
 	if len(event.Records) == 0 {
 		fmt.Println("Nenhum registro encontrado no evento")
+		// Delete the message from the queue
+		consumer.deleteSQSMessage(ctx, resp)
+
 		return nil, fmt.Errorf("evento sem registros")
 	}
 
@@ -103,23 +100,21 @@ func (consumer *ConsumerService) ConsumeMessage(ctx context.Context) (*dto.Messa
 
 	fmt.Printf("🎥 Novo vídeo: %s/%s - %s\n", bucket, key, timestamp)
 
-	url, err := consumer.generatePresignedURLV2(ctx, bucket, key)
-	if err != nil {
-		fmt.Println("Erro ao gerar URL assinada:", err)
-		//continue
-	}
-
 	msg := dto.Message{
 		BucketName: bucket,
 		Key:        key,
-		Url:        url,
 	}
 
 	slog.InfoContext(ctx, "Received message", "messageId", *resp.Messages[0].MessageId)
 	slog.InfoContext(ctx, "Received message", "body", *resp.Messages[0].Body)
-	slog.InfoContext(ctx, "Received message", "presignedURL", url)
 
 	// Delete the message from the queue
+	consumer.deleteSQSMessage(ctx, resp)
+
+	return &msg, nil
+}
+
+func (consumer *ConsumerService) deleteSQSMessage(ctx context.Context, resp *sqs.ReceiveMessageOutput) {
 	out, delErr := consumer.Client.DeleteMessage(ctx, &sqs.DeleteMessageInput{
 		QueueUrl:      &consumer.QueueUrl,
 		ReceiptHandle: resp.Messages[0].ReceiptHandle,
@@ -128,8 +123,6 @@ func (consumer *ConsumerService) ConsumeMessage(ctx context.Context) (*dto.Messa
 		slog.ErrorContext(ctx, "Error deleting message", "error", delErr)
 	}
 	slog.InfoContext(ctx, "Message deleted", "recepit", *&out.ResultMetadata)
-
-	return &msg, nil
 }
 
 func (consumer *ConsumerService) DeleteMessage(ctx context.Context, receiptHandle string) error {
@@ -143,38 +136,3 @@ func (consumer *ConsumerService) DeleteMessage(ctx context.Context, receiptHandl
 
 	return nil
 }
-
-func (consumer *ConsumerService) generatePresignedURLV2(ctx context.Context, bucket, key string) (string, error) {
-	presignClient := s3.NewPresignClient(consumer.S3Client)
-
-	presignedURL, err := presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	}, s3.WithPresignExpires(15*time.Minute))
-
-	if err != nil {
-		return "", fmt.Errorf("failed to sign request: %w", err)
-	}
-
-	return presignedURL.URL, nil
-}
-
-/*func (consumer *ConsumerService) GetObjectFromS3(ctx context.Context, bucket, key string) ([]byte, error) {
-	getObjInput := &s3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	}
-
-	resp, err := consumer.S3Client.GetObject(ctx, getObjInput)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get object from S3: %w", err)
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read object body: %w", err)
-	}
-
-	return data, nil
-}*/

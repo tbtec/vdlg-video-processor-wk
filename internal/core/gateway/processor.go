@@ -8,11 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/tbtec/vdlg/internal/dto"
+	"github.com/tbtec/vdlg/internal/enum"
 )
 
 type ProcessorGateway struct {
@@ -31,28 +32,30 @@ func NewProcessorGateway(config aws.Config) *ProcessorGateway {
 	}
 }
 
-type ProcessingResult struct {
-	Success    bool
-	Message    string
-	ZipPath    string
-	FrameCount int
-	Images     []string
-}
-
-func (gtw *ProcessorGateway) ProcessVideo(ctx context.Context, videoURL dto.Message) ProcessingResult {
-
-	timestamp := time.Now().Format("20060102_150405")
-
-	arq, err2 := gtw.getObjectFromS3(ctx, videoURL.BucketName, videoURL.Key)
-	if err2 != nil {
-		fmt.Println("Erro ao buscar arquivo no s3:", err2)
-	}
-
-	result := processVideoFromURL(videoURL, timestamp, arq)
-	fmt.Printf("✅ Resultado: %+v\n", result)
+func (gtw *ProcessorGateway) ProcessVideo(ctx context.Context, videoURL dto.Message) dto.OutputMessage {
 
 	bucket := videoURL.BucketName
 	key := videoURL.Key
+
+	details, err := gtw.CheckS3Details(ctx, bucket, key)
+
+	if err != nil {
+		fmt.Println("Erro ao obter detalhes do objeto S3:", err)
+	}
+	fmt.Println("Detalhes do objeto S3:", details)
+
+	if details != "OK" {
+		gtw.deleteS3Object(ctx, err, bucket, key) // Deleta o vídeo original da pasta input
+		return gtw.buildOutputMessage(key, enum.StatusError.String(), details)
+	}
+
+	arq, err := gtw.getObjectFromS3(ctx, bucket, key)
+	if err != nil {
+		fmt.Println("Erro ao buscar arquivo no s3:", err)
+	}
+
+	result := processVideoFromURL(videoURL, arq)
+	fmt.Printf("✅ Resultado: %+v\n", result)
 
 	if result.Success {
 		s3OutputKey := "output/" + filepath.Base(result.ZipPath)
@@ -71,29 +74,41 @@ func (gtw *ProcessorGateway) ProcessVideo(ctx context.Context, videoURL dto.Mess
 			}
 		}
 
-		// Deleta o vídeo original da pasta input
-		_, err = gtw.S3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
-			Bucket: aws.String(bucket),
-			Key:    aws.String(key),
-		})
-
-		if err != nil {
-			fmt.Printf("❌ Erro ao deletar %s: %v\n", key, err)
-		} else {
-			fmt.Printf("🗑️  Arquivo deletado: %s/%s\n", bucket, key)
-		}
+		gtw.deleteS3Object(ctx, err, bucket, key) // Deleta o vídeo original da pasta input
+		return gtw.buildOutputMessage(s3OutputKey, enum.StatusCompleted.String(), "")
 	}
-
-	return result
+	gtw.deleteS3Object(ctx, err, bucket, key) // Deleta o vídeo original da pasta input
+	return gtw.buildOutputMessage(key, enum.StatusError.String(), enum.StatusErrorProcessing.String())
 
 }
 
-func processVideoFromURL(message dto.Message, timestamp string, arq []byte) ProcessingResult {
+func (*ProcessorGateway) buildOutputMessage(fileName string, status string, reason string) dto.OutputMessage {
+	return dto.OutputMessage{
+		Filename: fileName,
+		Status:   status,
+		Reason:   reason,
+	}
+}
 
-	videoURL := message.Url
-	fmt.Printf("⏳ Processando vídeo: %s\n", videoURL)
+func (gtw *ProcessorGateway) deleteS3Object(ctx context.Context, err error, bucket string, key string) {
+	_, err = gtw.S3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
 
-	tempDir := filepath.Join("temp", timestamp)
+	if err != nil {
+		fmt.Printf("❌ Erro ao deletar %s: %v\n", key, err)
+	} else {
+		fmt.Printf("🗑️  Arquivo deletado: %s/%s\n", bucket, key)
+	}
+}
+
+func processVideoFromURL(message dto.Message, arq []byte) dto.ProcessingResult {
+
+	nome := extractNameFromInputPath(message.Key)
+	fmt.Printf("Nome do video: %s\n", nome)
+
+	tempDir := "temp"
 	os.MkdirAll(tempDir, 0755)
 	defer os.RemoveAll(tempDir)
 
@@ -103,7 +118,7 @@ func processVideoFromURL(message dto.Message, timestamp string, arq []byte) Proc
 	videoPath := filepath.Join(tempDir, "input.mp4")
 	err := os.WriteFile(videoPath, arq, 0644)
 	if err != nil {
-		return ProcessingResult{
+		return dto.ProcessingResult{
 			Success: false,
 			Message: fmt.Sprintf("Erro ao salvar arquivo temporário: %s", err.Error()),
 		}
@@ -118,7 +133,7 @@ func processVideoFromURL(message dto.Message, timestamp string, arq []byte) Proc
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return ProcessingResult{
+		return dto.ProcessingResult{
 			Success: false,
 			Message: fmt.Sprintf("Erro no ffmpeg: %s\nOutput: %s", err.Error(), string(output)),
 		}
@@ -126,22 +141,21 @@ func processVideoFromURL(message dto.Message, timestamp string, arq []byte) Proc
 
 	frames, err := filepath.Glob(filepath.Join(tempDir, "*.png"))
 	if err != nil || len(frames) == 0 {
-		return ProcessingResult{
+		return dto.ProcessingResult{
 			Success: false,
 			Message: "Nenhum frame foi extraído do vídeo",
 		}
 	}
 
-	zipFilename := fmt.Sprintf("frames_%s.zip", timestamp)
+	zipFilename := fmt.Sprintf("%s.zip", nome)
 	zipPath := filepath.Join("outputs", zipFilename)
 
-	zipPath2 := filepath.Join("outputs")
-
-	os.MkdirAll(zipPath2, 0755)
+	tempZipPath := filepath.Join("outputs")
+	os.MkdirAll(tempZipPath, 0755)
 
 	err = createZipFile(frames, zipPath)
 	if err != nil {
-		return ProcessingResult{
+		return dto.ProcessingResult{
 			Success: false,
 			Message: "Erro ao criar ZIP: " + err.Error(),
 		}
@@ -152,7 +166,7 @@ func processVideoFromURL(message dto.Message, timestamp string, arq []byte) Proc
 		imageNames[i] = filepath.Base(frame)
 	}
 
-	return ProcessingResult{
+	return dto.ProcessingResult{
 		Success:    true,
 		Message:    fmt.Sprintf("%d frames extraídos.", len(frames)),
 		ZipPath:    zipPath,
@@ -202,7 +216,7 @@ func (gtw *ProcessorGateway) uploadToS3(ctx context.Context, bucketName, key, fi
 
 	_, err = gtw.S3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
-		Key:    aws.String(key), // Ex: "output/frames_20250703_223000.zip"
+		Key:    aws.String(key),
 		Body:   file,
 	})
 
@@ -229,4 +243,38 @@ func (gtw *ProcessorGateway) getObjectFromS3(ctx context.Context, bucket, key st
 	}
 
 	return data, nil
+}
+
+func (gtw *ProcessorGateway) CheckS3Details(ctx context.Context, bucket, key string) (string, error) {
+	result, err := gtw.S3Client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return enum.StatusErrorFileCheck.String(), fmt.Errorf("erro ao obter detalhes do objeto S3: %w", err)
+	}
+
+	const maxSize int64 = 50 * 1024 * 1024 // 50MB em bytes
+	//const maxSize int64 = 1024 // 1MB em bytes
+
+	if result.ContentType != nil && *result.ContentType != "video/mp4" {
+		return enum.StatusErrorContentType.String(), nil
+	}
+
+	if result.ContentLength != nil && *result.ContentLength > maxSize {
+		return enum.StatusErrorFileSize.String(), nil
+	}
+	return "OK", nil
+}
+
+func extractNameFromInputPath(path string) string {
+	const prefix = "input/"
+	const suffix = ".mp4"
+
+	start := strings.Index(path, prefix)
+	end := strings.LastIndex(path, suffix)
+	if start == -1 || end == -1 || end <= start+len(prefix) {
+		return ""
+	}
+	return path[start+len(prefix) : end]
 }

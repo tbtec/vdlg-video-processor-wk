@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 
+	"github.com/tbtec/vdlg/internal/dto"
 	"github.com/tbtec/vdlg/internal/infra/event"
 )
 
@@ -16,7 +17,7 @@ func NewProducerGateway(producerService event.IProducerService) *ProducerGateway
 	}
 }
 
-func (gtw *ProducerGateway) PublishMessage(ctx context.Context, result ProcessingResult) error {
+func (gtw *ProducerGateway) PublishMessage(ctx context.Context, result dto.OutputMessage) error {
 
 	err := gtw.producerService.PublishMessage(ctx, result)
 	if err != nil {

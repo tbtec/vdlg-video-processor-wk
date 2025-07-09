@@ -46,13 +46,13 @@ spec:
                 name: vdlg-video-processor-secret
           resources:
             requests:
-              memory: "80Mi"
-              cpu: "80m"
-              ephemeral-storage: "100Mi"
+              memory: "2Gi"
+              cpu: "1000m"
+              ephemeral-storage: "2Gi"
             limits:
-              memory: "400Mi"
-              cpu: "200m"
-              ephemeral-storage: "500Mi"
+              memory: "2Gi"
+              cpu: "2000m"
+              ephemeral-storage: "2Gi"
       terminationGracePeriodSeconds: 30
       nodeSelector: {}
       tolerations: []
