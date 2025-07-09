@@ -4,7 +4,7 @@ AWS_EKS_CLUSTER_NAME=vdlg-eks-cluster
 run:
 	go run cmd/main.go
 
-test:
+test-unit:
 	go test -race -count=1 ./internal/... -coverprofile=coverage.out
 
 test-e2e:
@@ -58,7 +58,7 @@ kube-deploy:
 kube-deploy-eks:
 	kubectl apply -f k8s/namespace.yaml
 	kubectl apply -f k8s/configmap.yaml
-	kubectl apply -f k8s/secret.yaml
+#	kubectl apply -f k8s/secret.yaml
 	kubectl apply -f k8s/deployment.yaml
 	kubectl apply -f k8s/service.yaml
 	kubectl apply -f k8s/ingress.yaml

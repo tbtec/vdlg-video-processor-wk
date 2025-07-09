@@ -6,7 +6,7 @@ metadata:
 data:
   ENV: "dev"
   PORT: "8080"
-  INPUT_QUEUE_URL: "https://sqs.us-east-1.amazonaws.com/961211176201/WorkerInputQueue" 
-  PROCESS_RESULT_TOPIC_ARN: "arn:aws:sns:us-east-1:961211176201:OutputTopic"
+  INPUT_QUEUE_URL: "https://sqs.us-east-1.amazonaws.com/000047597454/WorkerInputQueue" 
+  PROCESS_RESULT_TOPIC_ARN: "arn:aws:sns:us-east-1:000047597454:OutputTopic"
   AWS_REGION: "us-east-1"
   AWS_USE_CREDENTIALS: "true"
